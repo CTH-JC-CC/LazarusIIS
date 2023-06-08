@@ -1,0 +1,67 @@
+Lazarus Group Targeting Windows IIS Web Servers
+AhnLab Security Emergency response Center (ASEC) has recently confirmed the Lazarus group, a group known to receive support on a national scale, carrying out attacks against Windows IIS web servers. Ordinarily, when threat actors perform a scan and find a web server with a vulnerable version, they use the vulnerability suitable for the version to install a web shell or execute malicious commands. The AhnLab Smart Defense (ASD) log displayed below in Figure 1 shows that Windows server systems are being targeted for attacks, and malicious behaviors are being carried out through w3wp.exe, an IIS web server process. Therefore, it can be assumed that the threat actor uses poorly managed or vulnerable web servers as their initial breach routes before executing their malicious commands later.
+
+The threat actor places a malicious DLL (msvcr100.dll) in the same folder path as a normal application (Wordconv.exe) via the Windows IIS web server process, w3wp.exe. They then execute the normal application to initiate the execution of the malicious DLL. In MITRE ATT&CK, this method of attack is categorized as the DLL side-loading (T1574.002) technique.
+
+
+Figure 1. Initial infiltration behavior log of the Lazarus group exploiting a poorly managed Windows IIS web server
+The Lazarus group’s use of the DLL side-loading technique to run malware has been confirmed many times already. The threat actor has been continuously changing the name of the normal process used in the DLL side-loading technique. This post will cover the DLL side-loading technique used by the threat actor during their initial infiltration process as well as their follow-up behaviors.
+
+1. Initial Infiltration: DLL Side-Loading Using Windows IIS Web Servers (Wordconv.exe, msvcr100.dll)
+The threat actor creates Wordconv.exe, msvcr100.dll, and msvcr100.dat through the Windows IIS web server process (w3wp.exe) before executing Wordconv.exe. As shown in the below figure, msvcr100.dll is contained within the import DLL list of Wordconv.exe, so the first DLL file that is loaded when Wordconv.exe is executed is determined by the DLL search priority of the operating system. As a result, the malicious msvcr100.dll is run in the memory of the Wordconv.exe process.
+
+
+Figure 2. Import DLL list of Wordconv.exe
+As can be seen in the below Figure 3, the functionality of msvcr100.dll involves decrypting an encoded PE file (msvcr100.dat) and the key (df2bsr2rob5s1f8788yk6ddi4x0wz1jq) that is transmitted as a command-line argument during the execution of Wordconv.exe by utilizing the Salsa20 algorithm. The decrypted PE file is then executed in the memory. It then performs the function of clearing the malicious DLL module that was loaded through the FreeLibraryAndExitThread WinAPI call before deleting itself (msvcr100.dll).
+
+
+Figure 3. Execution log of Wordconv.exe
+Also, msvcr100.dll is very similar in both appearance and features to the cylvc.dll malware covered in the ASEC Blog post “A Case of Malware Infection by the Lazarus Attack Group Disabling Anti-Malware Programs With the BYOVD Technique”, which was released back in 2022. Thus, it is speculated that msvcr100.dll is a variant malware of cylvc.dll.
+
+
+Figure 4. API Hashing value comparison between msvcr100.dll and cylvc.dll
+Similarly to msvcr100.dll, cylvc.dll decrypts the data files with the .dat extension using the Salsa20 algorithm before executing the PE file within the memory space. The PE that was executed within the memory space back in 2022 was a backdoor that communicated with the threat actor’s C&C server.
+
+
+Figure 5. Data decryption code routine comparison between msvcr100.dll and cylvc.dll
+2. Establishing Foothold and Stealing Certificates
+After the initial infiltration, the threat actor established a foothold before creating additional malware (diagn.dll) by exploiting the open-source “color picker plugin”, which is a plugin for Notepad++.
+
+
+Figure 6. diagn.dll icon resource information
+
+Figure 7. Open-source color picker plugin page (Github)
+diagn.dll is responsible for receiving the PE file encoded with the RC6 algorithm as an execution argument value before using an internally hard-coded key to decrypt the data file and execute the PE file in the memory.
+
+RC6 key: 5A 27 A3 E8 91 45 BE 63 34 23 11 4A 77 91 53 31 5F 47 14 E2 FF 75 5F D2 3F 58 55 6C A8 BF 07 A1
+The malicious behavior of the PE file executed in the memory is unknown since the PE data file that was encoded during the attack could not be collected, but a log was confirmed through the AhnLab Smart Defense (ASD) infrastructure of the threat actor accessing the memory space of the lsass.exe process through this module. Thus, it is suspected that the threat actor had executed a credential theft tool such as Mimikatz.
+
+
+Figure 8. Log of credential theft history
+3. Lateral Movement
+After acquiring the system credentials, the threat actor performed internal reconnaissance before utilizing remote access (port 3389) to perform lateral movement into the internal network. No further malicious activities by the threat actor have been uncovered since then.
+
+
+Figure 9. Log of lateral movement status
+4. Conclusion and Response
+The Lazarus group used a variety of attack vectors to perform their initial breach, including Log4Shell,  public certificate vulnerability, 3CX supply chain attack, etc. This group is one of the highly dangerous groups that are actively launching attacks worldwide. Therefore, corporate security managers should utilize attack surface management to identify the assets that could be exposed to threat actors and practice caution by applying the latest security patches whenever possible.
+
+In particular, since the threat group primarily utilizes the DLL side-loading technique during their initial infiltrations, companies should proactively monitor abnormal process execution relationships and take preemptive measures to prevent the threat group from carrying out activities such as information exfiltration and lateral movement.
+
+AhnLab’s products detect and block the malware identified in the attack case covered in this post using the following aliases.
+
+
+[File Detection]
+– Trojan/Win.LazarLoader.C5427612 (2023.05.15.02)
+– Trojan/Win.LazarLoader.C5427613 (2023.05.15.03)
+
+[IOC]
+[DLL Side-loading File Path]
+– C:\ProgramData\USOShared\Wordconv.exe
+– C:\ProgramData\USOShared\msvcr100.dll
+
+[MD5]
+– e501bb6762c14baafadbde8b0c04bbd6: diagn.dll
+– 228732b45ed1ca3cda2b2721f5f5667c: msvcr100.dll
+– 47d380dd587db977bf6458ec767fee3d: ? (Variant malware of msvcr100.dll)
+– 4d91cd34a9aae8f2d88e0f77e812cef7: cylvc.dll (Variant malware of msvcr100.dll)
